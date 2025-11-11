@@ -416,9 +416,9 @@ const MealPlanner = () => {
                 className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400"
               >
                 <option value="">{translations[language]?.select || 'Select'}</option>
-                <option value="vegan">{translations[language]?.vegan || 'Vegan'}</option>
+                {/* <option value="vegan">{translations[language]?.vegan || 'Vegan'}</option>
                 <option value="keto">{translations[language]?.keto || 'Keto'}</option>
-                <option value="gluten-free">{translations[language]?.glutenFree || 'Gluten-Free'}</option>
+                <option value="gluten-free">{translations[language]?.glutenFree || 'Gluten-Free'}</option> */}
                 <option value="halal">{translations[language]?.halal || 'Halal'}</option>
               </select>
             </div>
