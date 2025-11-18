@@ -1,5 +1,5 @@
 import { auth, db } from '../firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, signOut, fetchSignInMethodsForEmail } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 
 export async function signupUser({ name, phone, email, password, age, weight, height }) {
@@ -8,8 +8,7 @@ export async function signupUser({ name, phone, email, password, age, weight, he
 
   // Create user profile in Firestore
   const userRef = doc(db, 'users', cred.user.uid);
-  try {
-    await setDoc(userRef, {
+  setDoc(userRef, {
       uid: cred.user.uid,
       name,
       phone,
@@ -30,11 +29,9 @@ export async function signupUser({ name, phone, email, password, age, weight, he
       ],
       dietPlans: [],
       createdAt: serverTimestamp(),
+    }).catch((e) => {
+      console.warn('Firestore profile creation failed; proceeding with auth only.', e);
     });
-  } catch (e) {
-    // Do not block signup on profile write failure; log and continue
-    console.warn('Firestore profile creation failed; proceeding with auth only.', e);
-  }
 
   const token = await cred.user.getIdToken();
   return { token, userId: cred.user.uid };
@@ -54,4 +51,9 @@ export async function getUserProfile(uid) {
 
 export async function logoutUser() {
   await signOut(auth);
+}
+
+export async function isEmailRegistered(email) {
+  const methods = await fetchSignInMethodsForEmail(auth, email);
+  return Array.isArray(methods) && methods.length > 0;
 }
