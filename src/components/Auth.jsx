@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { signupUser, loginUser } from "../services/auth";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { signupUser, loginUser, logoutUser } from "../services/auth";
+import { useNavigate, useLocation } from "react-router-dom";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 
 const Auth = () => {
@@ -15,7 +15,16 @@ const Auth = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [success, setSuccess] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.state && location.state.success) {
+      setSuccess(location.state.success);
+      setTimeout(() => setSuccess(""), 4000);
+    }
+  }, [location.state]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,128 +44,169 @@ const Auth = () => {
             height: Number(height),
           };
 
-      const result = isLogin ? await loginUser(payload) : await signupUser(payload);
+      const withTimeout = (p, ms) => new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject({ code: "auth/network-timeout", message: "Request timed out" }), ms);
+        p.then((v) => { clearTimeout(t); resolve(v); }).catch((e) => { clearTimeout(t); reject(e); });
+      });
+      const result = isLogin
+        ? await withTimeout(loginUser(payload), 12000)
+        : await withTimeout(signupUser(payload), 12000);
 
+      // Save token and userId to localStorage (to keep compatibility with existing logic)
       localStorage.setItem("token", result.token);
       localStorage.setItem("userId", result.userId);
 
+      console.log("Auth Response:", result);
+
+      // Stop spinner immediately on success before navigation/state changes
       setIsLoading(false);
 
       if (isLogin) {
         navigate("/home");
       } else {
+        try {
+          await logoutUser();
+        } catch {}
+        localStorage.removeItem("token");
+        localStorage.removeItem("userId");
         setIsLogin(true);
+        navigate("/", { state: { success: "Account created! Please login" } });
       }
 
-      setName(""); setPhone(""); setEmail(""); setPassword("");
-      setAge(""); setWeight(""); setHeight("");
+      // Reset form fields
+      setName("");
+      setPhone("");
+      setEmail("");
+      setPassword("");
+      setAge("");
+      setWeight("");
+      setHeight("");
       setError("");
     } catch (err) {
       const mapAuthError = (e) => {
         switch (e?.code) {
-          case "auth/invalid-email": return "Invalid email address.";
-          case "auth/weak-password": return "Password must be 6+ characters.";
-          case "auth/email-already-in-use": return "Email already registered. Try logging in.";
-          case "auth/invalid-credential": return "Wrong email or password.";
-          case "auth/too-many-requests": return "Too many attempts. Try again later.";
-          case "auth/network-request-failed": return "Check internet connection.";
-          default: return e?.message || "Authentication failed.";
+          case "auth/configuration-not-found":
+            return "Email/Password sign-in is not enabled for this Firebase project. Enable it in Firebase Console → Authentication → Sign-in method.";
+          case "auth/operation-not-allowed":
+            return "The selected auth provider is disabled in Firebase. Enable it in Authentication settings.";
+          case "auth/invalid-email":
+            return "Please enter a valid email address.";
+          case "auth/weak-password":
+            return "Password must be at least 6 characters.";
+          case "auth/email-already-in-use":
+            return "This email is already registered. Try logging in instead.";
+          case "auth/invalid-credential":
+            return "Invalid credentials. Check your email and password and try again.";
+          case "auth/too-many-requests":
+            return "Too many attempts. Please wait a moment and try again.";
+          case "auth/network-request-failed":
+            return "Network error. Check your internet connection and try again.";
+          case "auth/network-timeout":
+            return "Request timed out. Please try again.";
+          default:
+            return e?.message || "Authentication error";
         }
       };
 
+      console.error("Auth Error:", err?.code, err?.message);
+      // If the email is already registered during signup, switch to login form
       if (!isLogin && err?.code === "auth/email-already-in-use") {
         setIsLogin(true);
       }
       setError(mapAuthError(err));
     } finally {
+      // Always stop the spinner even if an error occurs or a network request hangs
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-tr from-black via-gray-900 to-black p-4">
-      {/* Animated Border Container (Lines Restored!) */}
-      <div className="relative p-[3px] rounded-3xl w-full max-w-md mx-auto overflow-hidden">
-        {/* Animated Gradient Border (Original Lines Effect) */}
-        <div className="absolute inset-0 animate-spin-slow bg-[conic-gradient(from_0deg_at_50%_50%,#ff00ff_0%,#00ffff_50%,#ff00ff_100%)] rounded-3xl"></div>
-
-        {/* Inner Glass Card */}
-        <div className="relative bg-black/95 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-gray-800 z-10">
-          
-          {/* Title */}
-          <div className="text-center mb-6">
-            <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-500 bg-clip-text text-transparent">
-              NutriTrack AI
-            </h1>
-            <p className="text-gray-400 text-sm mt-1">{isLogin ? "Welcome back!" : "Create account"}</p>
-          </div>
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
-            {/* Sign Up Fields */}
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-tr from-black via-gray-900 to-black">
+      {success && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-2 rounded-lg shadow-lg">
+          {success}
+        </div>
+      )}
+      <div className="relative p-[2px] rounded-2xl w-96 overflow-hidden">
+        <div className="absolute inset-0 animate-spin-slow bg-[conic-gradient(from_0deg,#ff00ff,#00ffff,#ff00ff)]"></div>
+        <div className="relative bg-black/90 backdrop-blur-xl rounded-2xl p-8 z-10">
+          <h2 className="text-3xl font-bold text-center mb-6 text-white tracking-wider">
+            {isLogin ? "Login" : "Sign Up"}
+          </h2>
+          <form onSubmit={handleSubmit} autoComplete="off">
             {!isLogin && (
               <>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full p-3 sm:p-4 rounded-xl bg-gray-900/60 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pink-500 transition-all text-sm sm:text-base"
-                  placeholder="Full Name"
-                  required
-                />
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full p-3 sm:p-4 rounded-xl bg-gray-900/60 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-sm sm:text-base"
-                  placeholder="Phone Number"
-                  required
-                />
-                <input
-                  type="number"
-                  value={age}
-                  onChange={(e) => setAge(e.target.value)}
-                  className="w-full p-3 sm:p-4 rounded-xl bg-gray-900/60 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pink-500 transition-all text-sm sm:text-base"
-                  placeholder="Age"
-                  required
-                />
-                <input
-                  type="number"
-                  value={weight}
-                  onChange={(e) => setWeight(e.target.value)}
-                  className="w-full p-3 sm:p-4 rounded-xl bg-gray-900/60 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-sm sm:text-base"
-                  placeholder="Weight (kg)"
-                  required
-                />
-                <input
-                  type="number"
-                  value={height}
-                  onChange={(e) => setHeight(e.target.value)}
-                  className="w-full p-3 sm:p-4 rounded-xl bg-gray-900/60 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all text-sm sm:text-base"
-                  placeholder="Height (cm)"
-                  required
-                />
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full p-3 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    placeholder="Full Name"
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <div className="mb-4">
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full p-3 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="Phone Number"
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+                <div className="mb-4">
+                  <input
+                    type="number"
+                    value={age}
+                    onChange={(e) => setAge(e.target.value)}
+                    className="w-full p-3 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
+                    placeholder="Age"
+                    required
+                  />
+                </div>
+                <div className="mb-4">
+                  <input
+                    type="number"
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                    className="w-full p-3 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="Weight (kg)"
+                    required
+                  />
+                </div>
+                <div className="mb-4">
+                  <input
+                    type="number"
+                    value={height}
+                    onChange={(e) => setHeight(e.target.value)}
+                    className="w-full p-3 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    placeholder="Height (cm)"
+                    required
+                  />
+                </div>
               </>
             )}
-
-            {/* Email */}
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-3 sm:p-4 rounded-xl bg-gray-900/60 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pink-500 transition-all text-sm sm:text-base"
-              placeholder="Email"
-              autoComplete="new-email"
-              required
-            />
-
-            {/* Password */}
-            <div className="relative">
+            <div className="mb-4">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full p-3 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-pink-500"
+                placeholder="Email"
+                autoComplete="new-email"
+                required
+              />
+            </div>
+            <div className="mb-4 relative">
               <input
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full p-3 sm:p-4 rounded-xl bg-gray-900/60 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition-all pr-12 text-sm sm:text-base"
+                className="w-full p-3 rounded-lg bg-black/40 border border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 pr-10"
                 placeholder="Password"
                 autoComplete="new-password"
                 required
@@ -164,64 +214,38 @@ const Auth = () => {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                className="absolute right-3 top-3 text-gray-400 hover:text-white"
               >
-                {showPassword ? <FaEyeSlash className="w-5 h-5" /> : <FaEye className="w-5 h-5" />}
+                {showPassword ? <FaEyeSlash /> : <FaEye />}
               </button>
             </div>
-
-            {/* Error */}
-            {error && (
-              <div className="p-3 bg-red-500/20 border border-red-500/50 text-red-400 rounded-xl text-xs sm:text-sm text-center animate-pulse">
-                {error}
-              </div>
-            )}
-
-            {/* Submit Button */}
+            {error && <p className="text-red-400 mb-4 text-sm">{error}</p>}
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-pink-600 via-purple-600 to-cyan-600 text-white p-3 sm:p-4 rounded-xl font-bold text-sm sm:text-base hover:scale-105 transform transition-all duration-300 shadow-lg disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="w-full bg-gradient-to-r from-pink-600 via-purple-600 to-cyan-600 text-white p-3 rounded-lg font-bold hover:scale-105 transform transition-all duration-300 shadow-lg"
             >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Processing...
-                </span>
-              ) : (
-                isLogin ? "Login" : "Sign Up"
-              )}
+              {isLoading ? "Processing..." : isLogin ? "Login" : "Sign Up"}
             </button>
           </form>
-
-          {/* Toggle */}
-          <p className="text-center mt-5 text-gray-400 text-xs sm:text-sm">
-            {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
+          <p className="text-center mt-4 text-gray-300">
+            {isLogin ? "Need an account?" : "Already have an account?"}{" "}
             <button
               onClick={() => setIsLogin(!isLogin)}
-              className="text-cyan-400 hover:text-cyan-300 font-medium underline-offset-2 hover:underline transition-all"
+              className="text-pink-400 hover:underline"
             >
               {isLogin ? "Sign Up" : "Login"}
             </button>
           </p>
-
-          {/* Footer */}
-          <p className="text-center mt-6 text-gray-500 text-xs">
-            By continuing, you agree to our{" "}
-            <span className="text-cyan-400 cursor-pointer hover:underline">Terms</span> &{" "}
-            <span className="text-cyan-400 cursor-pointer hover:underline">Privacy</span>
-          </p>
         </div>
       </div>
-
-      {/* Original Animated Border CSS (Lines Restored!) */}
-      <style jsx>{`
+      <style>{`
         @keyframes spin-slow {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
         .animate-spin-slow {
-          animation: spin-slow 8s linear infinite;
+          animation: spin-slow 6s linear infinite;
         }
       `}</style>
     </div>
